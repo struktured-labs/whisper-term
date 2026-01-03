@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Voice to Claude
+Comment=Push-to-talk voice input for Claude
+Exec=/home/struktured/projects/whisper/voice-to-claude.sh clipboard
+Icon=audio-input-microphone
+Terminal=true
+Type=Application
+Categories=Utility;Accessibility;
+Keywords=voice;speech;whisper;claude;
