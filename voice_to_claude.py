@@ -13,6 +13,7 @@ Modes:
 """
 
 import argparse
+import os
 import queue
 import subprocess
 import sys
@@ -150,11 +151,25 @@ def copy_to_clipboard(text: str):
         print("[Error: xclip not found. Install with: sudo apt install xclip]", file=sys.stderr)
 
 def type_text(text: str):
-    """Type text into active window using xdotool."""
+    """Type text into active window. Supports Wayland via ydotool."""
+    # Try ydotool first (works on Wayland/KDE)
     try:
-        subprocess.run(["xdotool", "type", "--clearmodifiers", text], check=True)
+        subprocess.run(["ydotool", "type", "--", text], check=True, capture_output=True)
+        return
     except FileNotFoundError:
-        print("[Error: xdotool not found. Install with: sudo apt install xdotool]", file=sys.stderr)
+        pass
+
+    # Try xdotool (X11)
+    if os.environ.get("XDG_SESSION_TYPE") != "wayland":
+        try:
+            subprocess.run(["xdotool", "type", "--clearmodifiers", text], check=True)
+            return
+        except FileNotFoundError:
+            pass
+
+    # Fallback: clipboard + paste
+    subprocess.run(["xclip", "-selection", "clipboard"], input=text.encode(), check=True)
+    print("[Copied - press Ctrl+V to paste]", file=sys.stderr)
 
 def send_to_claude(text: str):
     """Send text to claude CLI."""
