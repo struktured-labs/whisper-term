@@ -106,20 +106,35 @@ class VoiceRecorder:
         print(f"[Done]", file=sys.stderr)
         return text.strip()
 
+    def _normalize_key(self, key):
+        """Normalize left/right modifier variants."""
+        # Map right-side modifiers to their generic versions
+        if key == keyboard.Key.ctrl_r:
+            return keyboard.Key.ctrl
+        if key == keyboard.Key.alt_r:
+            return keyboard.Key.alt
+        if key == keyboard.Key.shift_r:
+            return keyboard.Key.shift
+        return key
+
+    def _hotkey_active(self):
+        """Check if all hotkey keys are currently pressed."""
+        normalized = {self._normalize_key(k) for k in self.current_keys}
+        return HOTKEY.issubset(normalized)
+
     def on_press(self, key):
         """Handle key press."""
         self.current_keys.add(key)
-        if self.current_keys == HOTKEY and not self.hotkey_pressed:
+        if self._hotkey_active() and not self.hotkey_pressed:
             self.hotkey_pressed = True
             self.start_recording()
 
     def on_release(self, key):
         """Handle key release."""
-        if key in HOTKEY and self.hotkey_pressed:
-            self.hotkey_pressed = False
-            self.current_keys.discard(key)
-            return True  # Signal to process recording
         self.current_keys.discard(key)
+        if self.hotkey_pressed and not self._hotkey_active():
+            self.hotkey_pressed = False
+            return True  # Signal to process recording
         return False
 
 def copy_to_clipboard(text: str):
