@@ -3,7 +3,7 @@
 Voice-to-Claude: Push-to-talk voice input for Claude Code CLI.
 
 Usage:
-    Hold Super+V (or configured hotkey) to record, release to transcribe and send.
+    Hold Ctrl+Alt+V (or configured hotkey) to record, release to transcribe and send.
 
 Modes:
     --mode clipboard   : Copy transcription to clipboard (default)
@@ -30,7 +30,7 @@ SAMPLE_RATE = 16000
 CHANNELS = 1
 DTYPE = np.float32
 MODEL_SIZE = "base.en"  # Options: tiny.en, base.en, small.en, medium.en, large-v3
-HOTKEY = {keyboard.Key.cmd, keyboard.KeyCode.from_char('v')}  # Super+V
+HOTKEY = {keyboard.Key.ctrl, keyboard.Key.alt, keyboard.KeyCode.from_char('v')}  # Ctrl+Alt+V
 
 class VoiceRecorder:
     def __init__(self, model_size: str = MODEL_SIZE, device: int | None = None):
@@ -165,8 +165,8 @@ def main():
                         help=f"Whisper model size (default: {MODEL_SIZE})")
     parser.add_argument("--device", type=int, help="Audio input device index")
     parser.add_argument("--list-devices", action="store_true", help="List audio devices and exit")
-    parser.add_argument("--hotkey", default="super+v",
-                        help="Hotkey combination (default: super+v)")
+    parser.add_argument("--hotkey", default="ctrl+alt+v",
+                        help="Hotkey combination (default: ctrl+alt+v)")
     args = parser.parse_args()
 
     if args.list_devices:
