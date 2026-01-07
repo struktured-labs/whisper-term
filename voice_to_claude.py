@@ -54,6 +54,8 @@ class VoiceRecorder:
         self.audio_data = []
         self.current_keys = set()
         self.hotkey_pressed = False
+        self.last_recording_end = 0  # Cooldown to prevent rapid re-triggers
+        self.cooldown_seconds = 0.5
 
     def load_model(self):
         """Load Whisper model (lazy loading for faster startup)."""
@@ -139,6 +141,9 @@ class VoiceRecorder:
     def on_press(self, key):
         """Handle key press."""
         self.current_keys.add(key)
+        # Check cooldown to prevent rapid re-triggers
+        if time.time() - self.last_recording_end < self.cooldown_seconds:
+            return
         if self._hotkey_active() and not self.hotkey_pressed:
             self.hotkey_pressed = True
             self.start_recording()
@@ -148,6 +153,8 @@ class VoiceRecorder:
         self.current_keys.discard(key)
         if self.hotkey_pressed and not self._hotkey_active():
             self.hotkey_pressed = False
+            self.last_recording_end = time.time()
+            self.current_keys.clear()  # Clear to prevent stuck keys
             return True  # Signal to process recording
         return False
 
