@@ -33,6 +33,17 @@ DTYPE = np.float32
 MODEL_SIZE = "base.en"  # Options: tiny.en, base.en, small.en, medium.en, large-v3
 HOTKEY = {keyboard.Key.ctrl, keyboard.Key.space}  # Ctrl+Space
 
+# Sound files for feedback
+SOUND_START = "/usr/share/sounds/freedesktop/stereo/bell.oga"
+SOUND_DONE = "/usr/share/sounds/freedesktop/stereo/complete.oga"
+
+def play_sound(sound_file: str):
+    """Play a sound file asynchronously."""
+    try:
+        subprocess.Popen(["paplay", sound_file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except FileNotFoundError:
+        pass  # No sound if paplay not available
+
 class VoiceRecorder:
     def __init__(self, model_size: str = MODEL_SIZE, device: int | None = None):
         self.model_size = model_size
@@ -69,6 +80,7 @@ class VoiceRecorder:
             return
         self.recording = True
         self.audio_data = []
+        play_sound(SOUND_START)
         print("\r[Recording...] ", end="", file=sys.stderr, flush=True)
 
     def stop_recording(self) -> np.ndarray | None:
@@ -104,6 +116,7 @@ class VoiceRecorder:
         )
 
         text = " ".join(segment.text.strip() for segment in segments)
+        play_sound(SOUND_DONE)
         print(f"[Done]", file=sys.stderr)
         return text.strip()
 
