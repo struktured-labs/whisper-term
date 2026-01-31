@@ -33,16 +33,34 @@ DTYPE = np.float32
 MODEL_SIZE = "base.en"  # Options: tiny.en, base.en, small.en, medium.en, large-v3
 HOTKEY = {keyboard.Key.ctrl, keyboard.Key.space}  # Ctrl+Space
 
-# Sound files for feedback
-SOUND_START = "/usr/share/sounds/freedesktop/stereo/bell.oga"
-SOUND_DONE = "/usr/share/sounds/freedesktop/stereo/complete.oga"
+# Pre-generate feedback sounds (no subprocess delay)
+FEEDBACK_RATE = 44100
 
-def play_sound(sound_file: str):
-    """Play a sound file asynchronously."""
+def _make_tick(freq=1200, duration=0.06, volume=0.3):
+    """Generate a short tick/click sound."""
+    t = np.linspace(0, duration, int(FEEDBACK_RATE * duration), dtype=np.float32)
+    envelope = np.exp(-t * 40)  # Fast decay
+    return (np.sin(2 * np.pi * freq * t) * envelope * volume).astype(np.float32)
+
+def _make_done(freqs=(800, 1200), duration=0.08, volume=0.3):
+    """Generate a two-tone done sound."""
+    samples = []
+    for freq in freqs:
+        t = np.linspace(0, duration, int(FEEDBACK_RATE * duration), dtype=np.float32)
+        envelope = np.exp(-t * 25)
+        samples.append((np.sin(2 * np.pi * freq * t) * envelope * volume).astype(np.float32))
+    gap = np.zeros(int(FEEDBACK_RATE * 0.03), dtype=np.float32)
+    return np.concatenate([samples[0], gap, samples[1]])
+
+SOUND_START = _make_tick()
+SOUND_DONE = _make_done()
+
+def play_sound(sound: np.ndarray):
+    """Play a pre-generated sound instantly (non-blocking)."""
     try:
-        subprocess.Popen(["paplay", sound_file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except FileNotFoundError:
-        pass  # No sound if paplay not available
+        sd.play(sound, samplerate=FEEDBACK_RATE, blocking=False)
+    except Exception:
+        pass
 
 class VoiceRecorder:
     def __init__(self, model_size: str = MODEL_SIZE, device: int | None = None):
@@ -52,10 +70,9 @@ class VoiceRecorder:
         self.recording = False
         self.audio_queue = queue.Queue()
         self.audio_data = []
-        self.current_keys = set()
-        self.hotkey_pressed = False
-        self.last_recording_end = 0  # Cooldown to prevent rapid re-triggers
-        self.cooldown_seconds = 0.5
+        self.ctrl_held = False
+        self.space_held = False
+        self.processing = False  # True while transcribing, blocks new recordings
 
     def load_model(self):
         """Load Whisper model (lazy loading for faster startup)."""
@@ -122,39 +139,32 @@ class VoiceRecorder:
         print(f"[Done]", file=sys.stderr)
         return text.strip()
 
-    def _normalize_key(self, key):
-        """Normalize left/right modifier variants."""
-        # Map right-side modifiers to their generic versions
-        if key == keyboard.Key.ctrl_r:
-            return keyboard.Key.ctrl
-        if key == keyboard.Key.alt_r:
-            return keyboard.Key.alt
-        if key == keyboard.Key.shift_r:
-            return keyboard.Key.shift
-        return key
+    def _is_ctrl(self, key):
+        return key in (keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r)
 
-    def _hotkey_active(self):
-        """Check if all hotkey keys are currently pressed."""
-        normalized = {self._normalize_key(k) for k in self.current_keys}
-        return HOTKEY.issubset(normalized)
+    def _is_space(self, key):
+        return key == keyboard.Key.space
 
     def on_press(self, key):
         """Handle key press."""
-        self.current_keys.add(key)
-        # Check cooldown to prevent rapid re-triggers
-        if time.time() - self.last_recording_end < self.cooldown_seconds:
+        if self._is_ctrl(key):
+            self.ctrl_held = True
+        elif self._is_space(key):
+            self.space_held = True
+        else:
             return
-        if self._hotkey_active() and not self.hotkey_pressed:
-            self.hotkey_pressed = True
+        if self.ctrl_held and self.space_held and not self.recording and not self.processing:
             self.start_recording()
 
     def on_release(self, key):
         """Handle key release."""
-        self.current_keys.discard(key)
-        if self.hotkey_pressed and not self._hotkey_active():
-            self.hotkey_pressed = False
-            self.last_recording_end = time.time()
-            self.current_keys.clear()  # Clear to prevent stuck keys
+        if self._is_ctrl(key):
+            self.ctrl_held = False
+        elif self._is_space(key):
+            self.space_held = False
+        else:
+            return False
+        if self.recording and not (self.ctrl_held and self.space_held):
             return True  # Signal to process recording
         return False
 
@@ -285,23 +295,27 @@ def main():
                 if process_event.wait(timeout=0.1):
                     process_event.clear()
 
-                    audio = recorder.stop_recording()
-                    if audio is not None and len(audio) > SAMPLE_RATE * 0.3:  # Min 0.3s
-                        text = recorder.transcribe(audio)
-                        if text:
-                            print(f"\n>>> {text}\n", file=sys.stderr)
+                    recorder.processing = True
+                    try:
+                        audio = recorder.stop_recording()
+                        if audio is not None and len(audio) > SAMPLE_RATE * 0.3:  # Min 0.3s
+                            text = recorder.transcribe(audio)
+                            if text:
+                                print(f"\n>>> {text}\n", file=sys.stderr)
 
-                            if args.mode == "clipboard":
-                                copy_to_clipboard(text)
-                            elif args.mode == "type":
-                                type_text(text)
-                            elif args.mode == "claude":
-                                send_to_claude(text)
-                            elif args.mode == "stdout":
-                                print(text)
-                                sys.stdout.flush()
-                    else:
-                        print("\r[Recording too short, ignored]", file=sys.stderr)
+                                if args.mode == "clipboard":
+                                    copy_to_clipboard(text)
+                                elif args.mode == "type":
+                                    type_text(text)
+                                elif args.mode == "claude":
+                                    send_to_claude(text)
+                                elif args.mode == "stdout":
+                                    print(text)
+                                    sys.stdout.flush()
+                        else:
+                            print("\r[Recording too short, ignored]", file=sys.stderr)
+                    finally:
+                        recorder.processing = False
 
         except KeyboardInterrupt:
             print("\nExiting...", file=sys.stderr)
